@@ -1,0 +1,25 @@
+# Environment files — never commit real secrets. .env.example files ARE
+# meant to be tracked (they contain only placeholder values).
+.env
+.env.local
+.env.*.local
+frontend/.env
+!*.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor/OS
+.DS_Store
+.vscode/
+.idea/

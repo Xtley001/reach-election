@@ -1,0 +1,41 @@
+/* REACH Election — Responsive Layout
+   Mobile-first. Breakpoints from 01_DESIGN_SYSTEM.md. */
+
+/* ─── Container ───────────────────────────────────────────────────────────── */
+.container {
+  width: 100%;
+  padding: 0 var(--space-4);
+}
+
+/* Page content safe area */
+.page-content {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Sidebar hidden on mobile */
+.sidebar { display: none; }
+
+/* ─── 480px+ — large phone ────────────────────────────────────────────────── */
+@media (min-width: 480px) {
+  .container { padding: 0 var(--space-6); }
+}
+
+/* ─── 768px+ — tablet ─────────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .bottom-nav  { display: none; }
+  .sidebar     { display: flex; }
+  .page-content {
+    margin-left: 240px;
+    padding-bottom: var(--space-8);
+  }
+}
+
+/* ─── 1024px+ — desktop ───────────────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  .page-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 var(--space-8);
+  }
+}

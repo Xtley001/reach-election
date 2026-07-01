@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+
+  <!-- Dark mode: prevent FOUC (external file — see audit 6.2, keeps CSP script-src free of 'unsafe-inline') -->
+  <script src="/theme-init.js"></script>
+
+  <!-- PWA meta tags (01_DESIGN_SYSTEM.md) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="REACH" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- CSP (08_SECURITY.md) — see audit 6.2: script-src no longer needs
+       'unsafe-inline' now that the FOUC script is external; the leftover
+       dev-only http://localhost:8000 origin is dropped from connect-src
+       since local dev already proxies /v1 through the Vite dev server
+       (same-origin — see vite.config.js). NOTE: frame-ancestors has no
+       effect when set via a <meta> tag per the CSP spec — it must also be
+       set as a real HTTP response header at the hosting/CDN layer (e.g.
+       Vercel) for actual clickjacking protection; see vercel.json. -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://api.fontshare.com https://fonts.googleapis.com; font-src 'self' https://api.fontshare.com https://fonts.gstatic.com; img-src 'self' data: https://res.cloudinary.com; connect-src 'self' https://api.reach-ng.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none';" />
+
+  <!-- Fonts (01_DESIGN_SYSTEM.md — exact order) -->
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
+
+  <title>REACH Election</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
