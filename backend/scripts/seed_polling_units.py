@@ -45,17 +45,22 @@ def _fetch(url: str, retries: int = 3) -> bytes:
     for attempt in range(1, retries + 1):
         try:
             req = Request(url, headers={"User-Agent": "reach-election-seeder"})
-            with urlopen(req, timeout=60) as r:
-                return r.read()
-        except HTTPError as exc:
+            with urlopen(req, timeout=30) as r:
+                chunks = []
+                total = 0
+                while True:
+                    chunk = r.read(65536)  # 64 KB at a time
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total % (1024 * 1024) < 65536:
+                        log.info("  …downloaded %.1f MB", total / 1_048_576)
+                return b"".join(chunks)
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
             if attempt == retries:
                 raise
-            log.warning("HTTP %s on attempt %d — retrying in 5 s…", exc.code, attempt)
-            time.sleep(5)
-        except URLError as exc:
-            if attempt == retries:
-                raise
-            log.warning("Network error on attempt %d (%s) — retrying in 5 s…", attempt, exc)
+            log.warning("Attempt %d failed (%s) — retrying in 5 s…", attempt, exc)
             time.sleep(5)
 
 
