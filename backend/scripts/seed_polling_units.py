@@ -9,6 +9,7 @@ Idempotent: already-present INEC codes are skipped via ON CONFLICT DO NOTHING.
 """
 import json
 import logging
+import os
 import sys
 import time
 from urllib.parse import quote
@@ -19,7 +20,13 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
 _API_BASE = "https://api.github.com/repos/mykeels/inec-polling-units/contents"
-_HEADERS  = {"User-Agent": "reach-election-seeder"}
+
+# Set GITHUB_TOKEN env var to raise API rate limit from 60/hr to 5000/hr
+_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
+_HEADERS = {
+    "User-Agent": "reach-election-seeder",
+    **( {"Authorization": f"token {_TOKEN}"} if _TOKEN else {} ),
+}
 
 
 def _fetch_url(url: str, retries: int = 3) -> bytes:
@@ -65,11 +72,17 @@ def _extract_pus(data: dict | list, state_code: str, state_name: str) -> list[di
 
     if isinstance(data, list):
         lgas = data
+        log.debug("  JSON is a list with %d items; first item keys: %s",
+                  len(data), list(data[0].keys()) if data else [])
     else:
+        log.debug("  JSON top-level keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
         lgas = (
-            data.get("lgas") or data.get("LGAs") or data.get("data") or []
+            data.get("lgas") or data.get("LGAs") or data.get("data") or
+            data.get("Lgas") or data.get("LOCAL_GOVERNMENT_AREAS") or []
         )
         if not lgas:
+            log.warning("  Could not find LGA list. Top-level keys: %s  (first 200 chars: %s)",
+                        list(data.keys()), str(data)[:200])
             lgas = [data]
 
     for lga in lgas:
