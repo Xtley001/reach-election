@@ -5,7 +5,7 @@ Usage (run from the project root):
     python -m backend.scripts.seed_polling_units
 
 The script downloads JSON data from:
-    https://raw.githubusercontent.com/mykeels/inec-polling-units/master/data/
+    https://raw.githubusercontent.com/mykeels/inec-polling-units/main/data/
 
 Each state file contains the full hierarchy:
     state → LGAs → wards → polling units
@@ -32,7 +32,7 @@ _STATE_SLUGS = [
 ]
 
 _RAW_BASE = (
-    "https://raw.githubusercontent.com/mykeels/inec-polling-units/master/data"
+    "https://raw.githubusercontent.com/mykeels/inec-polling-units/main/data"
 )
 
 
