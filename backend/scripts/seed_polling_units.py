@@ -126,9 +126,17 @@ def seed(db_session=None):
     """
     import os
 
-    log.info("Downloading polling-units.csv from GitHub…")
-    raw = _fetch(_CSV_URL)
-    log.info("Downloaded %.1f MB — parsing…", len(raw) / 1_048_576)
+    # Use a local copy if present (avoids re-downloading on slow connections)
+    _local = os.path.join(os.path.dirname(__file__), "..", "..", "polling-units.csv")
+    _local = os.path.normpath(_local)
+    if os.path.exists(_local):
+        log.info("Using local polling-units.csv (%s)…", _local)
+        with open(_local, "rb") as fh:
+            raw = fh.read()
+    else:
+        log.info("Downloading polling-units.csv from GitHub…")
+        raw = _fetch(_CSV_URL)
+    log.info("Read %.1f MB — parsing…", len(raw) / 1_048_576)
 
     rows = _build_rows(raw.decode("utf-8"))
     log.info("Built %d rows. Inserting into DB…", len(rows))
