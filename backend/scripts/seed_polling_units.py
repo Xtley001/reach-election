@@ -113,29 +113,95 @@ def _build_rows(csv_text: str) -> list[dict]:
 
 
 def seed(db_session=None):
+    """
+    Callable from FastAPI startup (db_session supplied) or standalone via run_seed.py.
+
+    When running standalone, uses psycopg2 directly for reliable bulk inserts —
+    avoids SQLAlchemy ORM overhead and session-pooler timeouts.
+    """
+    import os
+
+    log.info("Downloading polling-units.csv from GitHub…")
+    raw = _fetch(_CSV_URL)
+    log.info("Downloaded %.1f MB — parsing…", len(raw) / 1_048_576)
+
+    rows = _build_rows(raw.decode("utf-8"))
+    log.info("Built %d rows. Inserting into DB…", len(rows))
+
     if db_session is None:
-        from ..database import SessionLocal
-        db = SessionLocal()
-        close_after = True
+        return _seed_via_psycopg2(rows, os.environ["DATABASE_URL"])
     else:
-        db = db_session
-        close_after = False
+        return _seed_via_sqlalchemy(rows, db_session)
+
+
+def _seed_via_psycopg2(rows: list[dict], db_url: str) -> dict:
+    """Direct psycopg2 bulk insert — used for local standalone seeding."""
+    import psycopg2
+    from psycopg2.extras import execute_values
+
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = False
+    cur = conn.cursor()
+
+    CHUNK = 2000
+    total_inserted = 0
+    total_skipped  = 0
 
     try:
-        from ..models import INECReferencePU
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        for i in range(0, len(rows), CHUNK):
+            chunk = rows[i: i + CHUNK]
+            values = [
+                (
+                    r["state_code"], r["state_name"],
+                    r["lga_code"],   r["lga_name"],
+                    r["ward_code"],  r["ward_name"],
+                    r["pu_code"],    r["pu_name"],
+                    r["inec_code"],  r["registered_voters"],
+                )
+                for r in chunk
+            ]
+            execute_values(
+                cur,
+                """
+                INSERT INTO inec_reference_pus
+                  (state_code, state_name, lga_code, lga_name,
+                   ward_code, ward_name, pu_code, pu_name,
+                   inec_code, registered_voters)
+                VALUES %s
+                ON CONFLICT (inec_code) DO NOTHING
+                """,
+                values,
+                page_size=CHUNK,
+            )
+            inserted = cur.rowcount
+            total_inserted += inserted if inserted >= 0 else len(chunk)
+            total_skipped  += len(chunk) - (inserted if inserted >= 0 else len(chunk))
 
-        log.info("Downloading polling-units.csv from GitHub…")
-        raw = _fetch(_CSV_URL)
-        log.info("Downloaded %.1f MB — parsing…", len(raw) / 1_048_576)
+            if (i // CHUNK) % 10 == 0:
+                log.info("  …%d / %d rows", i + len(chunk), len(rows))
 
-        rows = _build_rows(raw.decode("utf-8"))
-        log.info("Built %d rows. Inserting into DB…", len(rows))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
-        total_inserted = 0
-        total_skipped  = 0
-        CHUNK = 1000
+    log.info("Done. %d inserted, %d skipped.", total_inserted, total_skipped)
+    return {"inserted": total_inserted, "skipped": total_skipped}
 
+
+def _seed_via_sqlalchemy(rows: list[dict], db) -> dict:
+    """SQLAlchemy path — used when called from FastAPI with an existing session."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from ..models import INECReferencePU
+
+    total_inserted = 0
+    total_skipped  = 0
+    CHUNK = 500
+
+    try:
         for i in range(0, len(rows), CHUNK):
             chunk = rows[i: i + CHUNK]
             stmt  = pg_insert(INECReferencePU).values(chunk)
@@ -145,19 +211,13 @@ def seed(db_session=None):
             total_inserted += ins
             total_skipped  += len(chunk) - ins
 
-            if (i // CHUNK) % 20 == 0:
-                log.info("  …%d / %d rows", i + len(chunk), len(rows))
-
         db.commit()
-        log.info("Done. %d inserted, %d skipped.", total_inserted, total_skipped)
-        return {"inserted": total_inserted, "skipped": total_skipped}
-
     except Exception:
         db.rollback()
         raise
-    finally:
-        if close_after:
-            db.close()
+
+    log.info("Done. %d inserted, %d skipped.", total_inserted, total_skipped)
+    return {"inserted": total_inserted, "skipped": total_skipped}
 
 
 if __name__ == "__main__":
