@@ -57,9 +57,19 @@ _UNSAFE_CHARS = re.compile(r"[^\x20-\x7e]")
 async def lifespan(app: FastAPI):
     """Production startup guards — crash fast rather than run insecurely."""
     if settings.ENVIRONMENT == "production":
-        # Guard 1: OTP provider must not be console
-        if settings.OTP_PROVIDER == "console":
-            raise RuntimeError("FATAL: OTP_PROVIDER=console is not allowed in production.")
+        # Guard 1: at least one real OTP provider must be configured
+        # Channel-specific providers (EMAIL_OTP_PROVIDER / SMS_OTP_PROVIDER) take
+        # precedence over the global OTP_PROVIDER fallback, so console is only a
+        # problem when nothing channel-specific is set either.
+        _real = {"brevo", "termii", "sendgrid"}
+        _email_ok = settings.EMAIL_OTP_PROVIDER in _real
+        _sms_ok   = settings.SMS_OTP_PROVIDER   in _real
+        _global_ok = settings.OTP_PROVIDER not in ("", "console")
+        if not (_email_ok or _sms_ok or _global_ok):
+            raise RuntimeError(
+                "FATAL: No real OTP provider configured. "
+                "Set EMAIL_OTP_PROVIDER=brevo (and BREVO_API_KEY / BREVO_SENDER) in Render env vars."
+            )
         # Guard 2: JWT secret must be changed from default
         if settings.JWT_SECRET == "change-me-in-production":
             raise RuntimeError("FATAL: JWT_SECRET must be changed in production.")
