@@ -1,106 +1,97 @@
 """
 Seed the inec_reference_pus table from mykeels/inec-polling-units on GitHub.
 
-Usage (run from the project root):
+Usage:
     python run_seed.py
-    # or
     python -m backend.scripts.seed_polling_units
 
-Data lives at:
-    https://github.com/mykeels/inec-polling-units/tree/main/states/
-Each state dir (e.g. "01-abia") contains one JSON file per LGA or a
-single state-level JSON file — we detect the layout automatically.
-
-The script is idempotent: already-present INEC codes are skipped via
-ON CONFLICT DO NOTHING.
+Idempotent: already-present INEC codes are skipped via ON CONFLICT DO NOTHING.
 """
 import json
 import logging
 import sys
 import time
+from urllib.parse import quote
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
-_API_BASE  = "https://api.github.com/repos/mykeels/inec-polling-units/contents"
-_RAW_BASE  = "https://raw.githubusercontent.com/mykeels/inec-polling-units/main"
-_HEADERS   = {"User-Agent": "reach-election-seeder"}
+_API_BASE = "https://api.github.com/repos/mykeels/inec-polling-units/contents"
+_HEADERS  = {"User-Agent": "reach-election-seeder"}
 
 
-def _api_get(path: str, retries: int = 3) -> list | dict:
-    url = f"{_API_BASE}{path}"
+def _fetch_url(url: str, retries: int = 3) -> bytes:
     for attempt in range(1, retries + 1):
         try:
             req = Request(url, headers=_HEADERS)
             with urlopen(req, timeout=30) as r:
-                return json.loads(r.read())
+                return r.read()
         except HTTPError as exc:
             if exc.code == 403:
-                reset = exc.headers.get("X-RateLimit-Reset", "")
-                log.warning("GitHub rate-limited. Reset at %s. Waiting 60 s…", reset)
-                time.sleep(60)
+                reset = exc.headers.get("X-RateLimit-Reset", "unknown")
+                log.warning("GitHub rate-limited (reset=%s). Waiting 65 s…", reset)
+                time.sleep(65)
             elif attempt == retries:
                 raise
             else:
                 log.warning("Attempt %d failed (%s) — retrying…", attempt, exc)
-                time.sleep(2)
+                time.sleep(3)
         except URLError as exc:
             if attempt == retries:
                 raise
             log.warning("Attempt %d failed (%s) — retrying…", attempt, exc)
-            time.sleep(2)
+            time.sleep(3)
 
 
-def _raw_get(path: str, retries: int = 3) -> dict:
-    url = f"{_RAW_BASE}{path}"
-    for attempt in range(1, retries + 1):
-        try:
-            req = Request(url, headers=_HEADERS)
-            with urlopen(req, timeout=30) as r:
-                return json.loads(r.read())
-        except (URLError, HTTPError) as exc:
-            if attempt == retries:
-                raise
-            log.warning("Attempt %d failed (%s) — retrying…", attempt, exc)
-            time.sleep(2)
+def _api_list(subpath: str) -> list:
+    """List contents of a path in the repo. subpath must be already encoded."""
+    url = f"{_API_BASE}/{subpath}"
+    return json.loads(_fetch_url(url))
+
+
+def _download(download_url: str) -> dict | list:
+    """Download a file using the download_url returned by the GitHub API."""
+    return json.loads(_fetch_url(download_url))
 
 
 def _pad(code, width: int) -> str:
     return str(code).zfill(width)
 
 
-def _extract_pus(state_data: dict | list, state_code: str, state_name: str) -> list[dict]:
-    """Walk whatever shape the JSON is and return flat list of PU dicts."""
+def _extract_pus(data: dict | list, state_code: str, state_name: str) -> list[dict]:
     rows: list[dict] = []
 
-    # Normalise top-level: some files are a dict, some a list
-    if isinstance(state_data, list):
-        lgas = state_data
+    if isinstance(data, list):
+        lgas = data
     else:
         lgas = (
-            state_data.get("lgas")
-            or state_data.get("LGAs")
-            or state_data.get("data")
-            or []
+            data.get("lgas") or data.get("LGAs") or data.get("data") or []
         )
         if not lgas:
-            # Maybe it IS a single LGA
-            lgas = [state_data]
+            lgas = [data]
 
     for lga in lgas:
         if not isinstance(lga, dict):
             continue
-        lga_code = _pad(lga.get("lga_id") or lga.get("lgaCode") or lga.get("id") or "0", 2)
-        lga_name = (lga.get("lga") or lga.get("lgaName") or lga.get("name") or "").title()
+        lga_code = _pad(
+            lga.get("lga_id") or lga.get("lgaCode") or lga.get("id") or "0", 2
+        )
+        lga_name = (
+            lga.get("lga") or lga.get("lgaName") or lga.get("name") or ""
+        ).title()
 
         wards = lga.get("wards") or lga.get("Wards") or []
         for ward in wards:
             if not isinstance(ward, dict):
                 continue
-            ward_code = _pad(ward.get("ward_id") or ward.get("wardCode") or ward.get("id") or "0", 3)
-            ward_name = (ward.get("ward") or ward.get("wardName") or ward.get("name") or "").title()
+            ward_code = _pad(
+                ward.get("ward_id") or ward.get("wardCode") or ward.get("id") or "0", 3
+            )
+            ward_name = (
+                ward.get("ward") or ward.get("wardName") or ward.get("name") or ""
+            ).title()
 
             pus = (
                 ward.get("polling_units")
@@ -122,7 +113,6 @@ def _extract_pus(state_data: dict | list, state_code: str, state_name: str) -> l
                 ).title()
                 reg_v = pu.get("registered_voters") or pu.get("registeredVoters")
 
-                inec_code = f"{state_code}/{lga_code}/{ward_code}/{pu_code}"
                 rows.append({
                     "state_code":        state_code,
                     "state_name":        state_name,
@@ -132,7 +122,7 @@ def _extract_pus(state_data: dict | list, state_code: str, state_name: str) -> l
                     "ward_name":         ward_name,
                     "pu_code":           pu_code,
                     "pu_name":           pu_name[:300],
-                    "inec_code":         inec_code,
+                    "inec_code":         f"{state_code}/{lga_code}/{ward_code}/{pu_code}",
                     "registered_voters": int(reg_v) if reg_v else None,
                 })
     return rows
@@ -154,51 +144,55 @@ def seed(db_session=None):
         total_inserted = 0
         total_skipped  = 0
 
-        # Discover state directories via GitHub API
-        log.info("Fetching state directory listing from GitHub…")
-        state_dirs = _api_get("/states")
+        log.info("Fetching state directory listing…")
+        state_dirs = _api_list("states")
         state_dirs = [d for d in state_dirs if d["type"] == "dir"]
         log.info("Found %d state directories.", len(state_dirs))
 
         for state_dir in state_dirs:
-            dir_name  = state_dir["name"]          # e.g. "01-abia"
-            state_code = dir_name.split("-")[0]     # e.g. "01"
-            state_name = dir_name[len(state_code)+1:].replace("-", " ").title()  # e.g. "Abia"
+            dir_name   = state_dir["name"]               # e.g. "01-abia"
+            state_code = dir_name.split("-")[0]          # e.g. "01"
+            state_name = dir_name[len(state_code)+1:].replace("-", " ").title()
 
-            log.info("Processing %s (%s)…", state_name, dir_name)
+            log.info("Processing %s…", state_name)
 
-            # List files inside the state directory
+            # URL-encode the directory name (handles spaces like "03-akwa ibom")
+            encoded_dir = quote(dir_name, safe="")
             try:
-                state_files = _api_get(f"/states/{dir_name}")
+                state_files = _api_list(f"states/{encoded_dir}")
             except Exception as exc:
                 log.error("  Could not list %s: %s — skipping.", dir_name, exc)
                 continue
 
-            json_files = [f for f in state_files if f["name"].endswith(".json")]
+            json_files = [f for f in state_files
+                          if isinstance(f, dict) and f.get("name", "").endswith(".json")
+                          and f.get("download_url")]
             if not json_files:
                 log.warning("  No JSON files in %s — skipping.", dir_name)
+                # Log what IS there to help diagnose
+                names = [f.get("name") for f in state_files[:5] if isinstance(f, dict)]
+                log.warning("  Contents: %s", names)
                 continue
 
             batch: list[dict] = []
             for jf in json_files:
-                raw_path = f"/states/{dir_name}/{jf['name']}"
+                log.info("  Fetching %s…", jf["name"])
                 try:
-                    data = _raw_get(raw_path)
+                    # Use download_url from API — correct branch + encoding built in
+                    data = _download(jf["download_url"])
                 except Exception as exc:
-                    log.error("  Failed to fetch %s: %s — skipping.", jf["name"], exc)
+                    log.error("  Failed %s: %s — skipping.", jf["name"], exc)
                     continue
-
                 rows = _extract_pus(data, state_code, state_name)
                 batch.extend(rows)
 
             if not batch:
-                log.warning("  No polling units extracted from %s.", dir_name)
+                log.warning("  No PUs extracted from %s.", dir_name)
                 continue
 
-            # Batch upsert
             CHUNK = 1000
             for i in range(0, len(batch), CHUNK):
-                chunk = batch[i : i + CHUNK]
+                chunk = batch[i: i + CHUNK]
                 stmt = pg_insert(INECReferencePU).values(chunk)
                 stmt = stmt.on_conflict_do_nothing(index_elements=["inec_code"])
                 result = db.execute(stmt)
@@ -207,12 +201,9 @@ def seed(db_session=None):
                 total_skipped  += len(chunk) - ins
 
             db.commit()
-            log.info("  %s: %d PUs processed.", state_name, len(batch))
+            log.info("  %s: %d PUs.", state_name, len(batch))
 
-        log.info(
-            "Seeding complete. %d inserted, %d skipped (already present).",
-            total_inserted, total_skipped,
-        )
+        log.info("Done. %d inserted, %d skipped.", total_inserted, total_skipped)
         return {"inserted": total_inserted, "skipped": total_skipped}
 
     except Exception:
