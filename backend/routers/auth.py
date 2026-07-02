@@ -156,25 +156,24 @@ async def verify_otp(
         remaining = OTP_MAX_ATTEMPTS - session.attempts
         raise HTTPException(400, f"Incorrect code. {remaining} attempt(s) remaining.")
 
-    # OTP valid — look up or create user
+    # OTP valid — look up user (accounts must be pre-created; no auto-signup)
     if body.channel == "sms":
         user = db.query(User).filter(User.phone == identifier).first()
     else:
         user = db.query(User).filter(User.email == identifier).first()
 
-    is_new = user is None
-    if is_new:
-        user = User(
-            campaign_id=None,   # audit 1.1: never trust client input here
-            name=body.name,
-            phone=body.phone if body.channel == "sms" else None,
-            email=body.email if body.channel == "email" else None,
-            role=UserRole.director,
-            status=UserStatus.active,
+    if user is None:
+        raise HTTPException(
+            404,
+            "No account found for this contact. "
+            "Directors are created by the system administrator. "
+            "Coordinators and agents must use their invite link.",
         )
-        db.add(user)
-        db.flush()
 
+    if user.status == UserStatus.suspended:
+        raise HTTPException(403, "Your account has been suspended. Contact your director.")
+
+    is_new = False
     user.last_active_at = now
 
     access_token  = create_access_token(
