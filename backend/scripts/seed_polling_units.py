@@ -1,5 +1,7 @@
 """
-Seed the inec_reference_pus table from mykeels/inec-polling-units on GitHub.
+Seed the inec_reference_pus table from mykeels/inec-polling-units polling-units.csv.
+
+Single HTTP download — no GitHub API rate limits.
 
 Usage:
     python run_seed.py
@@ -7,137 +9,106 @@ Usage:
 
 Idempotent: already-present INEC codes are skipped via ON CONFLICT DO NOTHING.
 """
-import json
+import csv
+import io
 import logging
-import os
 import sys
 import time
-from urllib.parse import quote
-from urllib.request import urlopen, Request
-from urllib.error import URLError, HTTPError
+from collections import defaultdict
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
-_API_BASE = "https://api.github.com/repos/mykeels/inec-polling-units/contents"
+_CSV_URL = (
+    "https://raw.githubusercontent.com/mykeels/inec-polling-units"
+    "/master/polling-units.csv"
+)
 
-# Set GITHUB_TOKEN env var to raise API rate limit from 60/hr to 5000/hr
-_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
-_HEADERS = {
-    "User-Agent": "reach-election-seeder",
-    **( {"Authorization": f"token {_TOKEN}"} if _TOKEN else {} ),
+# Official INEC state codes (alphabetical by common name)
+_STATE_CODE: dict[str, str] = {
+    "ABIA": "01", "ADAMAWA": "02", "AKWA IBOM": "03", "ANAMBRA": "04",
+    "BAUCHI": "05", "BAYELSA": "06", "BENUE": "07", "BORNO": "08",
+    "CROSS RIVER": "09", "DELTA": "10", "EBONYI": "11", "EDO": "12",
+    "EKITI": "13", "ENUGU": "14", "GOMBE": "15", "IMO": "16",
+    "JIGAWA": "17", "KADUNA": "18", "KANO": "19", "KATSINA": "20",
+    "KEBBI": "21", "KOGI": "22", "KWARA": "23", "LAGOS": "24",
+    "NASARAWA": "25", "NIGER": "26", "OGUN": "27", "ONDO": "28",
+    "OSUN": "29", "OYO": "30", "PLATEAU": "31", "RIVERS": "32",
+    "SOKOTO": "33", "TARABA": "34", "YOBE": "35", "ZAMFARA": "36",
+    "FCT": "37", "ABUJA": "37",
 }
 
 
-def _fetch_url(url: str, retries: int = 3) -> bytes:
+def _fetch(url: str, retries: int = 3) -> bytes:
     for attempt in range(1, retries + 1):
         try:
-            req = Request(url, headers=_HEADERS)
-            with urlopen(req, timeout=30) as r:
+            req = Request(url, headers={"User-Agent": "reach-election-seeder"})
+            with urlopen(req, timeout=60) as r:
                 return r.read()
         except HTTPError as exc:
-            if exc.code == 403:
-                reset = exc.headers.get("X-RateLimit-Reset", "unknown")
-                log.warning("GitHub rate-limited (reset=%s). Waiting 65 s…", reset)
-                time.sleep(65)
-            elif attempt == retries:
+            if attempt == retries:
                 raise
-            else:
-                log.warning("Attempt %d failed (%s) — retrying…", attempt, exc)
-                time.sleep(3)
+            log.warning("HTTP %s on attempt %d — retrying in 5 s…", exc.code, attempt)
+            time.sleep(5)
         except URLError as exc:
             if attempt == retries:
                 raise
-            log.warning("Attempt %d failed (%s) — retrying…", attempt, exc)
-            time.sleep(3)
+            log.warning("Network error on attempt %d (%s) — retrying in 5 s…", attempt, exc)
+            time.sleep(5)
 
 
-def _api_list(subpath: str) -> list:
-    """List contents of a path in the repo. subpath must be already encoded."""
-    url = f"{_API_BASE}/{subpath}"
-    return json.loads(_fetch_url(url))
+def _build_rows(csv_text: str) -> list[dict]:
+    """
+    Parse the CSV and assign sequential INEC-style codes.
 
+    Hierarchy: state → lga → ward → pu
+    Codes are zero-padded: state(2) / lga(2) / ward(3) / pu(4)
+    """
+    # tree[state_name][lga_name][ward_name] = [pu_name, ...]
+    tree: dict[str, dict[str, dict[str, list[str]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
 
-def _download(download_url: str) -> dict | list:
-    """Download a file using the download_url returned by the GitHub API."""
-    return json.loads(_fetch_url(download_url))
-
-
-def _pad(code, width: int) -> str:
-    return str(code).zfill(width)
-
-
-def _extract_pus(data: dict | list, state_code: str, state_name: str) -> list[dict]:
-    rows: list[dict] = []
-
-    if isinstance(data, list):
-        lgas = data
-        log.debug("  JSON is a list with %d items; first item keys: %s",
-                  len(data), list(data[0].keys()) if data else [])
-    else:
-        log.debug("  JSON top-level keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
-        lgas = (
-            data.get("lgas") or data.get("LGAs") or data.get("data") or
-            data.get("Lgas") or data.get("LOCAL_GOVERNMENT_AREAS") or []
-        )
-        if not lgas:
-            log.warning("  Could not find LGA list. Top-level keys: %s  (first 200 chars: %s)",
-                        list(data.keys()), str(data)[:200])
-            lgas = [data]
-
-    for lga in lgas:
-        if not isinstance(lga, dict):
+    reader = csv.DictReader(io.StringIO(csv_text))
+    seen: set[tuple] = set()
+    for row in reader:
+        state = (row.get("state_name") or "").strip().upper()
+        lga   = (row.get("local_government_name") or "").strip().upper()
+        ward  = (row.get("ward_name") or "").strip().upper()
+        pu    = (row.get("name") or "").strip().upper()
+        if not (state and lga and ward and pu):
             continue
-        lga_code = _pad(
-            lga.get("lga_id") or lga.get("lgaCode") or lga.get("id") or "0", 2
-        )
-        lga_name = (
-            lga.get("lga") or lga.get("lgaName") or lga.get("name") or ""
-        ).title()
+        key = (state, lga, ward, pu)
+        if key in seen:
+            continue
+        seen.add(key)
+        tree[state][lga][ward].append(pu)
 
-        wards = lga.get("wards") or lga.get("Wards") or []
-        for ward in wards:
-            if not isinstance(ward, dict):
-                continue
-            ward_code = _pad(
-                ward.get("ward_id") or ward.get("wardCode") or ward.get("id") or "0", 3
-            )
-            ward_name = (
-                ward.get("ward") or ward.get("wardName") or ward.get("name") or ""
-            ).title()
-
-            pus = (
-                ward.get("polling_units")
-                or ward.get("pollingUnits")
-                or ward.get("units")
-                or []
-            )
-            for pu in pus:
-                if not isinstance(pu, dict):
-                    continue
-                pu_code = _pad(
-                    pu.get("polling_unit_id") or pu.get("puCode") or pu.get("id") or "0", 4
-                )
-                pu_name = (
-                    pu.get("polling_unit_name")
-                    or pu.get("puName")
-                    or pu.get("name")
-                    or ""
-                ).title()
-                reg_v = pu.get("registered_voters") or pu.get("registeredVoters")
-
-                rows.append({
-                    "state_code":        state_code,
-                    "state_name":        state_name,
-                    "lga_code":          lga_code,
-                    "lga_name":          lga_name,
-                    "ward_code":         ward_code,
-                    "ward_name":         ward_name,
-                    "pu_code":           pu_code,
-                    "pu_name":           pu_name[:300],
-                    "inec_code":         f"{state_code}/{lga_code}/{ward_code}/{pu_code}",
-                    "registered_voters": int(reg_v) if reg_v else None,
-                })
+    rows: list[dict] = []
+    for state_name in sorted(tree):
+        state_code = _STATE_CODE.get(state_name, "00")
+        for lga_idx, lga_name in enumerate(sorted(tree[state_name]), start=1):
+            lga_code = f"{lga_idx:02d}"
+            for ward_idx, ward_name in enumerate(sorted(tree[state_name][lga_name]), start=1):
+                ward_code = f"{ward_idx:03d}"
+                pus = sorted(tree[state_name][lga_name][ward_name])
+                for pu_idx, pu_name in enumerate(pus, start=1):
+                    pu_code  = f"{pu_idx:04d}"
+                    inec_code = f"{state_code}/{lga_code}/{ward_code}/{pu_code}"
+                    rows.append({
+                        "state_code":        state_code,
+                        "state_name":        state_name.title(),
+                        "lga_code":          lga_code,
+                        "lga_name":          lga_name.title(),
+                        "ward_code":         ward_code,
+                        "ward_name":         ward_name.title(),
+                        "pu_code":           pu_code,
+                        "pu_name":           pu_name.title()[:300],
+                        "inec_code":         inec_code,
+                        "registered_voters": None,
+                    })
     return rows
 
 
@@ -154,68 +125,30 @@ def seed(db_session=None):
         from ..models import INECReferencePU
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+        log.info("Downloading polling-units.csv from GitHub…")
+        raw = _fetch(_CSV_URL)
+        log.info("Downloaded %.1f MB — parsing…", len(raw) / 1_048_576)
+
+        rows = _build_rows(raw.decode("utf-8"))
+        log.info("Built %d rows. Inserting into DB…", len(rows))
+
         total_inserted = 0
         total_skipped  = 0
+        CHUNK = 1000
 
-        log.info("Fetching state directory listing…")
-        state_dirs = _api_list("states")
-        state_dirs = [d for d in state_dirs if d["type"] == "dir"]
-        log.info("Found %d state directories.", len(state_dirs))
+        for i in range(0, len(rows), CHUNK):
+            chunk = rows[i: i + CHUNK]
+            stmt  = pg_insert(INECReferencePU).values(chunk)
+            stmt  = stmt.on_conflict_do_nothing(index_elements=["inec_code"])
+            result = db.execute(stmt)
+            ins = result.rowcount if result.rowcount >= 0 else len(chunk)
+            total_inserted += ins
+            total_skipped  += len(chunk) - ins
 
-        for state_dir in state_dirs:
-            dir_name   = state_dir["name"]               # e.g. "01-abia"
-            state_code = dir_name.split("-")[0]          # e.g. "01"
-            state_name = dir_name[len(state_code)+1:].replace("-", " ").title()
+            if (i // CHUNK) % 20 == 0:
+                log.info("  …%d / %d rows", i + len(chunk), len(rows))
 
-            log.info("Processing %s…", state_name)
-
-            # URL-encode the directory name (handles spaces like "03-akwa ibom")
-            encoded_dir = quote(dir_name, safe="")
-            try:
-                state_files = _api_list(f"states/{encoded_dir}")
-            except Exception as exc:
-                log.error("  Could not list %s: %s — skipping.", dir_name, exc)
-                continue
-
-            json_files = [f for f in state_files
-                          if isinstance(f, dict) and f.get("name", "").endswith(".json")
-                          and f.get("download_url")]
-            if not json_files:
-                log.warning("  No JSON files in %s — skipping.", dir_name)
-                # Log what IS there to help diagnose
-                names = [f.get("name") for f in state_files[:5] if isinstance(f, dict)]
-                log.warning("  Contents: %s", names)
-                continue
-
-            batch: list[dict] = []
-            for jf in json_files:
-                log.info("  Fetching %s…", jf["name"])
-                try:
-                    # Use download_url from API — correct branch + encoding built in
-                    data = _download(jf["download_url"])
-                except Exception as exc:
-                    log.error("  Failed %s: %s — skipping.", jf["name"], exc)
-                    continue
-                rows = _extract_pus(data, state_code, state_name)
-                batch.extend(rows)
-
-            if not batch:
-                log.warning("  No PUs extracted from %s.", dir_name)
-                continue
-
-            CHUNK = 1000
-            for i in range(0, len(batch), CHUNK):
-                chunk = batch[i: i + CHUNK]
-                stmt = pg_insert(INECReferencePU).values(chunk)
-                stmt = stmt.on_conflict_do_nothing(index_elements=["inec_code"])
-                result = db.execute(stmt)
-                ins = result.rowcount if result.rowcount >= 0 else len(chunk)
-                total_inserted += ins
-                total_skipped  += len(chunk) - ins
-
-            db.commit()
-            log.info("  %s: %d PUs.", state_name, len(batch))
-
+        db.commit()
         log.info("Done. %d inserted, %d skipped.", total_inserted, total_skipped)
         return {"inserted": total_inserted, "skipped": total_skipped}
 
