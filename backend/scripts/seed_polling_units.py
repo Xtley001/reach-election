@@ -182,9 +182,9 @@ def _seed_via_psycopg2(rows: list[dict], db_url: str) -> dict:
             for r in chunk
         ]
 
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             try:
-                conn = psycopg2.connect(db_url)
+                conn = psycopg2.connect(db_url, connect_timeout=30)
                 conn.autocommit = False
                 cur = conn.cursor()
                 execute_values(cur, _SQL, values, page_size=CHUNK)
@@ -200,10 +200,11 @@ def _seed_via_psycopg2(rows: list[dict], db_url: str) -> dict:
                     conn.close()
                 except Exception:
                     pass
-                if attempt == 3:
+                if attempt == 5:
                     raise
-                log.warning("Chunk %d failed (%s) — retry %d…", i, exc, attempt)
-                time.sleep(3 * attempt)
+                wait = 15 * attempt  # 15 s, 30 s, 45 s, 60 s
+                log.warning("Chunk %d failed (%s) — retry %d in %ds…", i, exc, attempt, wait)
+                time.sleep(wait)
 
         if (i // CHUNK) % 20 == 0:
             log.info("  …%d / %d rows", i + len(chunk), len(rows))
