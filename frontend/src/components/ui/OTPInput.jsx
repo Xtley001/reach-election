@@ -3,8 +3,8 @@ import { useRef, useEffect } from 'react';
 const LENGTH = 6;
 
 export function OTPInput({ value = '', onChange, error = false, disabled = false }) {
-  const digits   = value.padEnd(LENGTH, '').slice(0, LENGTH).split('');
-  const refs     = useRef([]);
+  const digits = value.padEnd(LENGTH, '').slice(0, LENGTH).split('');
+  const refs   = useRef([]);
 
   // WebOTP autofill (Android Chrome)
   useEffect(() => {
@@ -50,31 +50,15 @@ export function OTPInput({ value = '', onChange, error = false, disabled = false
     focus(Math.min(pasted.length, LENGTH - 1));
   }
 
-  const cellStyle = (idx) => ({
-    display:       'inline-block',
-    width:         44,
-    height:        52,
-    textAlign:     'center',
-    fontSize:      22,
-    fontWeight:    700,
-    lineHeight:    '52px',
-    fontFamily:    'monospace',
-    background:    '#F5F5F7',
-    border:        `2px solid ${error ? '#D92B2B' : digits[idx] ? '#1D1D1F' : '#D2D2D7'}`,
-    borderRadius:  8,
-    color:         '#1D1D1F',
-    outline:       'none',
-    cursor:        disabled ? 'not-allowed' : 'text',
-    caretColor:    'transparent',
-    MozAppearance: 'textfield',
-    transition:    'border-color 0.15s',
-  });
+  // --cell-border drives border-color via CSS; :focus overrides it with !important
+  function borderVar(idx) {
+    if (error)       return 'var(--red)';
+    if (digits[idx]) return 'var(--accent)';
+    return 'var(--border)';
+  }
 
   return (
-    <div
-      onPaste={handlePaste}
-      style={{ display: 'flex', gap: 8, justifyContent: 'center', width: '100%' }}
-    >
+    <div className="otp-row" onPaste={handlePaste}>
       {digits.map((digit, idx) => (
         <input
           key={idx}
@@ -87,7 +71,8 @@ export function OTPInput({ value = '', onChange, error = false, disabled = false
           value={digit}
           disabled={disabled}
           aria-label={`Digit ${idx + 1} of ${LENGTH}`}
-          style={cellStyle(idx)}
+          className={`otp-cell${error ? ' otp-cell-error' : ''}`}
+          style={{ '--cell-border': borderVar(idx) }}
           onChange={e => handleChange(idx, e)}
           onKeyDown={e => handleKeyDown(idx, e)}
           onFocus={e => e.target.select()}

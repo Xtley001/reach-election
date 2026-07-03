@@ -292,28 +292,39 @@ select.input { cursor: pointer; }
   width: 100%;
 }
 .otp-cell {
-  flex: 1;
-  min-width: 0;
-  width: clamp(36px, 13vw, 52px);
-  height: clamp(44px, 13vw, 60px);
+  /* Explicit size — never use flex:1 here, it collapses to 0 in Vite builds */
+  flex-shrink: 0;
+  width: 44px;
+  height: 52px;
   text-align: center;
   font-size: var(--text-xl);
   font-family: var(--font-mono);
   font-weight: 700;
+  line-height: 1;
   background: var(--bg-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
+  border: 2px solid var(--cell-border, var(--border));
+  border-radius: var(--radius-md);
   color: var(--text);
   outline: none;
-  transition: border-color 0.15s ease;
+  caret-color: transparent;
+  -moz-appearance: textfield;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: text;
 }
-.otp-cell:focus { border-color: var(--accent); }
-.otp-cell-error { border-color: var(--red); animation: shake 0.35s ease; }
+.otp-cell:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
+}
+:root[data-theme="dark"] .otp-cell:focus {
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.1);
+}
+.otp-cell:disabled { opacity: 0.5; cursor: not-allowed; }
+.otp-cell-error { animation: shake 0.35s ease; }
 
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
-  25%       { transform: translateX(-6px); }
-  75%       { transform: translateX(6px); }
+  25%       { transform: translateX(-5px); }
+  75%       { transform: translateX(5px); }
 }
 
 /* ─── Progress Bar ───────────────────────────────────────────────────────── */
