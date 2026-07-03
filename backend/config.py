@@ -39,7 +39,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # Cloudinary
+    # Cloudinary — prefer the single URL form: cloudinary://key:secret@cloud_name
+    # The SDK also reads CLOUDINARY_URL from the environment automatically, but
+    # we surface it here so pydantic-settings validates it like every other var.
+    CLOUDINARY_URL: str = ""
+    # Individual vars kept as fallback for environments that can't set the URL form
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""

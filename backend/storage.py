@@ -5,12 +5,20 @@ from .config import settings
 
 
 def configure_cloudinary():
-    cloudinary.config(
-        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
-        api_key=settings.CLOUDINARY_API_KEY,
-        api_secret=settings.CLOUDINARY_API_SECRET,
-        secure=True,
-    )
+    if settings.CLOUDINARY_URL:
+        # Single URL form: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+        cloudinary.config(url=settings.CLOUDINARY_URL, secure=True)
+    elif settings.CLOUDINARY_CLOUD_NAME:
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+            secure=True,
+        )
+    else:
+        raise RuntimeError(
+            "Cloudinary is not configured. Set CLOUDINARY_URL in environment variables."
+        )
 
 
 async def upload_avatar(file_bytes: bytes, folder: str = "reach-election/avatars") -> str:
