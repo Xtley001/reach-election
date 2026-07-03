@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import { ToastContainer } from './components/ui/ToastContainer.jsx';
 import { useOfflineSync } from './hooks/useOfflineSync.js';
 import { useEffect, useState } from 'react';
+import LandingPage      from './pages/LandingPage.jsx';
 import LoginPage        from './pages/LoginPage.jsx';
 import JoinPage         from './pages/JoinPage.jsx';
 import SetupCampaign    from './pages/SetupCampaign.jsx';
@@ -66,8 +67,8 @@ function AppShell() {
       <Route path="/coordinator/*"  element={user?.role==='coordinator' ? <CoordinatorLayout /> : <Navigate to="/login" replace />} />
       <Route path="/agent/*"        element={user?.role==='agent'       ? <AgentLayout />       : <Navigate to="/login" replace />} />
 
-      {/* Root — role-based redirect */}
-      <Route path="/" element={<RoleRouter user={user} />} />
+      {/* Root — landing for guests, role redirect for authenticated users */}
+      <Route path="/" element={user ? <RoleRouter user={user} /> : <LandingPage />} />
 
       {/* 404 — from 10_AUDIT.md Pass 3 */}
       <Route path="*" element={<NotFoundPage />} />
