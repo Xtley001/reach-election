@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
 
 DB = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:REMOVED@db.uewukxlxygscobkniunk.supabase.co:5432/postgres",
+    "postgresql://postgres.uewukxlxygscobkniunk:REMOVED@aws-1-eu-central-1.pooler.supabase.com:5432/postgres",
 )
 os.environ["DATABASE_URL"] = DB
 

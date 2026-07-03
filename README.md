@@ -9,18 +9,18 @@ A field-operations platform for election campaigns. Agents log voters door-to-do
 ```
 reach-election/
 ├── backend/              FastAPI application (Python 3.11+)
-│   ├── main.py           App factory, CORS, security headers, rate limiter
+│   ├── main.py           App factory, CORS, security headers, rate limiter, Sentry
 │   ├── config.py         Pydantic-settings environment config
 │   ├── models.py         SQLAlchemy ORM models (PostgreSQL)
 │   ├── schemas.py        Pydantic v2 request/response schemas
 │   ├── auth.py           OTP generation, bcrypt hashing, JWT, Brevo/Termii dispatch
 │   ├── dependencies.py   FastAPI dependency injectors (auth, RBAC)
 │   ├── database.py       SQLAlchemy engine + session factory
-│   ├── limiter.py        SlowAPI rate-limiter instance
-│   ├── storage.py        Cloudinary avatar upload
+│   ├── limiter.py        SlowAPI rate-limiter (Redis-backed via Upstash)
+│   ├── storage.py        Cloudinary image upload
 │   ├── email_client.py   HTML email templates (OTP, invite)
 │   ├── scripts/
-│   │   └── seed_polling_units.py  Seeds inec_reference_pus from public dataset
+│   │   └── seed_polling_units.py  Seeds inec_reference_pus from polling-units.csv
 │   └── routers/
 │       ├── auth.py           OTP login, JWT refresh, session management
 │       ├── campaigns.py      Campaign CRUD
@@ -33,14 +33,19 @@ reach-election/
 │       ├── templates.py      Message template CRUD
 │       └── users.py          User profile, status management
 ├── frontend/             React 18 + Vite SPA (deployed to Vercel)
+│   ├── vercel.json       SPA rewrite + security headers (must live inside frontend/)
+│   └── src/
+│       ├── main.jsx      App entry point + Sentry init
+│       └── pages/
+│           └── LandingPage.jsx  Public landing page at /
 ├── migrations/
 │   ├── schema.sql                Full schema for fresh installs
 │   └── 002_add_voter_seeding.sql Incremental migration for existing DBs
-├── SETUP.md              Deployment guide (Render + Vercel + Supabase)
-└── vercel.json           Frontend deployment + security headers
+├── run_seed.py           Standalone polling-unit seeder (run locally, not on Render)
+└── SETUP.md              Full deployment guide (Render + Vercel + Supabase)
 ```
 
-**Stack:** FastAPI · PostgreSQL (Supabase) · SQLAlchemy · Pydantic v2 · SlowAPI · bcrypt · PyJWT · Brevo (email OTP) · Termii (SMS OTP) · Cloudinary · Redis (optional) · React 18 · Vite · Vercel
+**Stack:** FastAPI · PostgreSQL (Supabase) · SQLAlchemy · Pydantic v2 · SlowAPI · bcrypt · PyJWT · Brevo (email OTP) · Termii (SMS OTP) · Cloudinary · Redis/Upstash · Sentry · React 18 · Vite · Vercel
 
 ---
 
@@ -52,7 +57,7 @@ reach-election/
 | **coordinator** | Manages one zone; creates messaging sessions; sees zone agents |
 | **agent** | Logs voters and sends messages for their assigned zone |
 
-Role assignment is enforced server-side on every request via `require_director`, `require_coordinator`, `require_agent` FastAPI dependencies.
+Role assignment is enforced server-side on every request via `require_director`, `require_coordinator`, `require_agent` FastAPI dependencies. **There is no self-registration.** All accounts must be pre-created — directors via SQL, coordinators/agents via the app's invite link system.
 
 ---
 
@@ -61,7 +66,7 @@ Role assignment is enforced server-side on every request via `require_director`,
 ### Prerequisites
 - Python 3.11+
 - Node 18+
-- PostgreSQL 14+
+- PostgreSQL 14+ (or a Supabase project)
 
 ### Backend
 
@@ -82,6 +87,8 @@ uvicorn main:app --reload --port 8000
 
 API docs: http://localhost:8000/docs
 
+For local OTP development, set `OTP_PROVIDER=console` in your `.env`. The OTP code is printed to the terminal — no email or SMS credentials needed.
+
 ### Frontend
 
 ```bash
@@ -95,49 +102,50 @@ npm run dev
 
 ## Environment Variables
 
-### Backend (`backend/.env`)
+### Backend (`backend/.env` or Render environment tab)
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string (`postgresql+psycopg2://...`) |
-| `JWT_SECRET` | Yes | HS256 signing secret (min 32 chars) |
+| `DATABASE_URL` | Yes | Supabase **session pooler** URI — `postgresql://postgres.[ref]:...@aws-0-[region].pooler.supabase.com:5432/postgres` |
+| `JWT_SECRET` | Yes | HS256 signing secret — `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `JWT_SECRET_V1` | No | Previous JWT secret for key rotation (verify-only) |
 | `ENVIRONMENT` | Yes | `development` or `production` |
-| `ALLOWED_ORIGINS` | Yes | Comma-separated frontend origin(s) for CORS |
-| `FRONTEND_URL` | Yes (prod) | Base URL for invite links (e.g. `https://app.reach-ng.com`) |
-| `EMAIL_OTP_PROVIDER` | Yes (prod) | `brevo` — Brevo transactional email API |
-| `SMS_OTP_PROVIDER` | Yes (prod) | `termii` — Termii SMS (Nigerian numbers) |
-| `OTP_PROVIDER` | No | `console` fallback for local dev (prints OTP to terminal) |
-| `BREVO_API_KEY` | If brevo | Brevo API key (from app.brevo.com → API Keys) |
-| `BREVO_SENDER` | If brevo | Verified sender email address |
-| `TERMII_API_KEY` | If termii | Termii API key (from termii.com dashboard) |
+| `ALLOWED_ORIGINS` | Yes | Comma-separated frontend origins for CORS (e.g. `https://your-app.vercel.app`) |
+| `FRONTEND_URL` | Yes (prod) | Base URL for invite links |
+| `TRUST_PROXY_HEADERS` | Yes (prod) | `true` on Render |
+| `EMAIL_OTP_PROVIDER` | Yes (prod) | `brevo` |
+| `BREVO_API_KEY` | If brevo | From app.brevo.com → API Keys |
+| `BREVO_SENDER` | If brevo | Verified sender email in Brevo |
+| `SMS_OTP_PROVIDER` | No | `termii` (when Termii sender ID is approved) |
+| `TERMII_API_KEY` | If termii | From termii.com dashboard |
 | `TERMII_SENDER` | If termii | Approved sender ID, max 11 chars (e.g. `REACH`) |
-| `ADMIN_BACKUP_EMAIL` | No | Dev-only OTP cc address (blocked in production) |
-| `ADMIN_OTP_CC_ENABLED` | No | `false` in production — startup guard enforces this |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Default: 60 |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | No | Default: 30 |
-| `CLOUDINARY_CLOUD_NAME` | If avatars | Cloudinary cloud name |
-| `CLOUDINARY_API_KEY` | If avatars | Cloudinary API key |
-| `CLOUDINARY_API_SECRET` | If avatars | Cloudinary API secret |
-| `REDIS_URL` | No | Redis URL for rate-limit persistence across restarts |
-| `SENTRY_DSN` | No | Sentry error tracking DSN |
-| `TRUST_PROXY_HEADERS` | No | `true` only when behind a trusted reverse proxy that strips `X-Forwarded-For` |
+| `OTP_PROVIDER` | Local dev | `console` — prints OTP to terminal (blocked in production) |
+| `CLOUDINARY_URL` | If uploads | Single-URL form: `cloudinary://API_KEY:API_SECRET@CLOUD_NAME` |
+| `REDIS_URL` | No | `rediss://...` from Upstash — persists rate-limit counters across restarts |
+| `SENTRY_DSN` | No | From sentry.io → your project → DSN |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Default: `60` |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | No | Default: `30` |
 
-### Frontend (`frontend/.env`)
+### Frontend (`frontend/.env` or Vercel environment tab)
 
 | Variable | Required | Description |
 |---|---|---|
 | `VITE_API_URL` | Yes | Backend base URL, no trailing slash (e.g. `https://your-backend.onrender.com`) |
+| `VITE_ENV` | Yes (prod) | `production` |
+| `VITE_SENTRY_DSN` | No | Sentry DSN for frontend error tracking (same DSN as backend, or a separate React project) |
+
+> **Heads-up:** Vite bakes env vars at build time. Adding or changing a `VITE_*` variable in Vercel requires a redeploy to take effect.
 
 ---
 
 ## Authentication Flow
 
 1. Client calls `POST /v1/auth/send-otp` with phone or email.
-2. Server generates a 6-digit CSPRNG OTP, bcrypt-hashes it, stores the hash in `otp_sessions`, dispatches the code.
-3. Client calls `POST /v1/auth/verify-otp`. On success: server issues a short-lived JWT access token (1 h) and sets a rotating httpOnly refresh cookie (`reach_refresh`).
-4. Client stores the access token in memory (never `localStorage`). On expiry, calls `POST /v1/auth/refresh` — the cookie is exchanged for a new access token and a new refresh cookie (token rotation).
-5. `POST /v1/auth/logout` revokes the current refresh token and clears the cookie.
+2. Server looks up the contact in the database. If no account exists, returns **404** — there is no auto-registration.
+3. Server generates a 6-digit CSPRNG OTP, bcrypt-hashes it, stores the hash in `otp_sessions`, and dispatches the code via Brevo (email) or Termii (SMS).
+4. Client calls `POST /v1/auth/verify-otp`. On success: server issues a short-lived JWT access token (1 h) and sets a rotating httpOnly refresh cookie (`reach_refresh`).
+5. Client stores the access token in memory (never `localStorage`). On expiry, calls `POST /v1/auth/refresh` — the cookie is exchanged for a new access token and a new refresh cookie (token rotation).
+6. `POST /v1/auth/logout` revokes the current refresh token and clears the cookie.
 
 OTP lockout: 5 failed attempts triggers a 30-minute lockout. All 429 responses include `Retry-After` headers.
 
@@ -163,7 +171,7 @@ OTP lockout: 5 failed attempts triggers a 30-minute lockout. All 429 responses i
 
 ## Security Headers
 
-Applied by FastAPI middleware (all API responses) and Vercel config (frontend):
+Applied by FastAPI middleware (all API responses) and `frontend/vercel.json` (frontend):
 
 | Header | Value |
 |---|---|
@@ -184,7 +192,7 @@ A `reach_cleanup()` SQL function is defined in `migrations/schema.sql`. Schedule
 SELECT cron.schedule('reach-cleanup', '0 3 * * *', 'SELECT reach_cleanup()');
 ```
 
-This removes expired OTP sessions and old revoked/expired refresh tokens. It respects active lockouts — locked OTP sessions are retained until `locked_until` passes.
+This removes expired OTP sessions and old revoked/expired refresh tokens. Enable the `pg_cron` extension first in Supabase → **Database → Extensions**.
 
 ---
 
@@ -194,23 +202,24 @@ See [SETUP.md](SETUP.md) for the full step-by-step guide. Summary:
 
 ### Database — Supabase
 
-Create a free Supabase project, then run `migrations/schema.sql` in the Supabase SQL Editor. No CLI or shell required.
+Create a free Supabase project, run `migrations/schema.sql` in the SQL Editor, enable `pg_cron`. Use the **session pooler** connection string (port 5432) as `DATABASE_URL`.
 
 ### Backend — Render
 
-Build: `pip install -r backend/requirements.txt`
+Build: `pip install -r backend/requirements.txt`  
 Start: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
 
-Set `ENVIRONMENT=production`. The startup guard blocks launch if `FRONTEND_URL` is unset or `ADMIN_OTP_CC_ENABLED=true` in production.
+Set `ENVIRONMENT=production` and `EMAIL_OTP_PROVIDER=brevo`. The startup guard blocks launch if no real OTP provider is configured.
 
-After first deploy, run the polling unit seeder once from your **local machine**:
+After first deploy, run the polling unit seeder once from your **local machine** (Render free tier has no shell access):
 ```bash
-DATABASE_URL="postgresql://..." python -m backend.scripts.seed_polling_units
+set DATABASE_URL=postgresql://postgres.[ref]:...
+python run_seed.py
 ```
 
 ### Frontend — Vercel
 
-`vercel.json` is pre-configured with all security headers. Set `VITE_API_URL` in Vercel environment variables.
+Set root directory to `frontend`. Set `VITE_API_URL` in Vercel environment variables. `frontend/vercel.json` handles the SPA rewrite and security headers automatically.
 
 ---
 
@@ -218,4 +227,4 @@ DATABASE_URL="postgresql://..." python -m backend.scripts.seed_polling_units
 
 Interactive Swagger UI available at `/docs` when `ENVIRONMENT != production`. ReDoc at `/redoc`.
 
-All authenticated endpoints require `Authorization: Bearer <access_token>`. Rate limits apply per IP. See individual router files for per-endpoint limits.
+All authenticated endpoints require `Authorization: Bearer <access_token>`. Rate limits apply per IP (backed by Redis when `REDIS_URL` is set). See individual router files for per-endpoint limits.
