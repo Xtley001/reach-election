@@ -399,22 +399,22 @@ export default function LandingPage() {
               {
                 n: '01',
                 title: 'Director is seeded',
-                body: 'The campaign's director account is provisioned by the system administrator with a single SQL command.',
+                body: "The campaign's director account is provisioned by the system administrator with a single SQL command.",
               },
               {
                 n: '02',
                 title: 'Teams are invited',
-                body: 'Directors generate secure invite links for coordinators and agents — no passwords, no self-registration.',
+                body: "Directors generate secure invite links for coordinators and agents — no passwords, no self-registration.",
               },
               {
                 n: '03',
                 title: 'Login by OTP',
-                body: 'All users sign in with a 6-digit one-time code sent to their email or phone. No credentials to lose.',
+                body: "All users sign in with a 6-digit one-time code sent to their email or phone. No credentials to lose.",
               },
               {
                 n: '04',
                 title: 'Deploy to the field',
-                body: 'Coordinators activate sessions, agents start canvassing. The director dashboard updates in real time.',
+                body: "Coordinators activate sessions, agents start canvassing. The director dashboard updates in real time.",
               },
             ].map((step, i, arr) => (
               <div key={step.n} style={{
