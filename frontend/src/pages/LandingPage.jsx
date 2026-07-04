@@ -40,7 +40,7 @@ const features = [
     icon: <MapIcon />,
     label: 'Coordinator',
     title: 'Zone-level command and control',
-    body: 'Build targeted messaging sessions, assign voter queues to agents, and track delivery across your zone's polling units.',
+    body: "Build targeted messaging sessions, assign voter queues to agents, and track delivery across your zone's polling units.",
   },
   {
     icon: <UsersIcon />,
