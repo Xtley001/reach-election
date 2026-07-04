@@ -6,7 +6,6 @@ export function OTPInput({ value = '', onChange, error = false, disabled = false
   const digits = value.padEnd(LENGTH, '').slice(0, LENGTH).split('');
   const refs   = useRef([]);
 
-  // WebOTP autofill (Android Chrome)
   useEffect(() => {
     if (!('OTPCredential' in window)) return;
     const ac = new AbortController();
@@ -50,15 +49,23 @@ export function OTPInput({ value = '', onChange, error = false, disabled = false
     focus(Math.min(pasted.length, LENGTH - 1));
   }
 
-  // --cell-border drives border-color via CSS; :focus overrides it with !important
-  function borderVar(idx) {
+  // Resolve border color: use CSS var() strings so dark mode works automatically
+  function borderColor(idx) {
     if (error)       return 'var(--red)';
     if (digits[idx]) return 'var(--accent)';
     return 'var(--border)';
   }
 
   return (
-    <div className="otp-row" onPaste={handlePaste}>
+    <div
+      onPaste={handlePaste}
+      style={{
+        display: 'flex',
+        gap: '8px',
+        justifyContent: 'center',
+        width: '100%',
+      }}
+    >
       {digits.map((digit, idx) => (
         <input
           key={idx}
@@ -71,11 +78,38 @@ export function OTPInput({ value = '', onChange, error = false, disabled = false
           value={digit}
           disabled={disabled}
           aria-label={`Digit ${idx + 1} of ${LENGTH}`}
-          className={`otp-cell${error ? ' otp-cell-error' : ''}`}
-          style={{ '--cell-border': borderVar(idx) }}
+          style={{
+            /* Explicit pixel size — never collapses regardless of flex context */
+            flexShrink: 0,
+            width:      '44px',
+            height:     '52px',
+            textAlign:  'center',
+            fontSize:   '22px',
+            fontWeight: 700,
+            fontFamily: 'var(--font-mono)',
+            background: 'var(--bg-2)',
+            border:     `2px solid ${borderColor(idx)}`,
+            borderRadius: '8px',
+            color:      'var(--text)',
+            outline:    'none',
+            caretColor: 'transparent',
+            cursor:     disabled ? 'not-allowed' : 'text',
+            opacity:    disabled ? 0.5 : 1,
+            transition: 'border-color 0.15s ease',
+            /* Suppress browser number input spinners */
+            MozAppearance: 'textfield',
+          }}
           onChange={e => handleChange(idx, e)}
           onKeyDown={e => handleKeyDown(idx, e)}
-          onFocus={e => e.target.select()}
+          onFocus={e => {
+            e.target.style.borderColor = 'var(--accent)';
+            e.target.style.boxShadow   = '0 0 0 3px rgba(0,0,0,0.08)';
+            e.target.select();
+          }}
+          onBlur={e => {
+            e.target.style.borderColor = borderColor(idx);
+            e.target.style.boxShadow   = 'none';
+          }}
         />
       ))}
     </div>
