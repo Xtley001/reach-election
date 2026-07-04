@@ -13,7 +13,9 @@ function isDarkMode() {
 }
 
 export function OTPInput({ value = '', onChange, error = false, disabled = false }) {
-  const digits  = value.padEnd(LENGTH, '').slice(0, LENGTH).split('');
+  // Fixed-length array: '' for unfilled slots. NB: value.padEnd(LENGTH, '')
+  // is a no-op (empty pad string), yielding a zero-length array → no boxes.
+  const digits  = Array.from({ length: LENGTH }, (_, i) => value[i] || '');
   const refs    = useRef([]);
   // Re-render when theme changes so colors update
   const [, tick] = useState(0);
