@@ -1,12 +1,14 @@
+import { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.jsx';
-import { toast } from '../lib/toast';
-import TerritoryPage    from './director/TerritoryPage.jsx';
-import TemplateManager   from './director/TemplateManager.jsx';
-import DirectorDashboard  from './director/DirectorDashboard.jsx';
-import VoterImportPage   from './director/VoterImportPage.jsx';
-import { DarkModeToggle } from '../components/ui/DarkModeToggle.jsx';
-import SettingsPage       from './SettingsPage.jsx';
+import TerritoryPage        from './director/TerritoryPage.jsx';
+import TemplateManager      from './director/TemplateManager.jsx';
+import DirectorDashboard    from './director/DirectorDashboard.jsx';
+import VoterImportPage      from './director/VoterImportPage.jsx';
+import DirectorVotersPage   from './director/DirectorVotersPage.jsx';
+import DirectorTeamPage     from './director/DirectorTeamPage.jsx';
+import DirectorMessagingPage from './director/DirectorMessagingPage.jsx';
+import SettingsPage         from './SettingsPage.jsx';
 
 const NAV = [
   { to: '/director/dashboard',  label: 'Dashboard',  icon: '📊' },
@@ -18,18 +20,14 @@ const NAV = [
   { to: '/director/settings',   label: 'Settings',   icon: '⚙️'  },
 ];
 
-function Placeholder({ title }) {
-  return (
-    <div style={{ padding:'40px 24px', textAlign:'center' }}>
-      <h2 style={{ fontFamily:'var(--font-display)', fontSize:'var(--text-xl)', marginBottom:8 }}>{title}</h2>
-      <p style={{ color:'var(--text-2)' }}>Coming in next phase.</p>
-    </div>
-  );
-}
+// Mobile bottom-nav shows 4 primary tabs + a "More" sheet for the rest.
+const PRIMARY = NAV.slice(0, 4);
+const OVERFLOW = NAV.slice(4);
 
 export default function DirectorLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   async function handleLogout() {
     await logout();
@@ -38,12 +36,11 @@ export default function DirectorLayout() {
 
   return (
     <div style={{ minHeight:'100dvh', background:'var(--bg)' }}>
-      {/* Sidebar — desktop */}
+      {/* Sidebar — desktop only */}
       <aside style={{
         position:'fixed', top:0, left:0, bottom:0, width:220,
         background:'var(--bg)', borderRight:'1px solid var(--border)',
-        display:'flex', flexDirection:'column',
-        zIndex:90,
+        display:'flex', flexDirection:'column', zIndex:90,
       }} className="sidebar">
         <div style={{ padding:'var(--space-5) var(--space-4)', borderBottom:'1px solid var(--border)' }}>
           <p style={{ fontFamily:'var(--font-display)', fontWeight:700, fontSize:'var(--text-md)', color:'var(--text)' }}>REACH</p>
@@ -74,29 +71,51 @@ export default function DirectorLayout() {
         </div>
       </aside>
 
-      {/* Bottom nav — mobile */}
+      {/* Bottom nav — mobile only */}
       <nav className="bottom-nav">
-        {NAV.slice(0,5).map(n => (
+        {PRIMARY.map(n => (
           <NavLink key={n.to} to={n.to} className={({ isActive }) => `bottom-nav-item${isActive ? ' active' : ''}`}>
             <span className="bottom-nav-icon" style={{ fontSize:22 }}>{n.icon}</span>
             <span>{n.label}</span>
           </NavLink>
         ))}
+        <button className="bottom-nav-item" onClick={() => setMoreOpen(true)} style={{ background:'none', border:'none', fontFamily:'var(--font-sans)' }}>
+          <span className="bottom-nav-icon" style={{ fontSize:22 }}>⋯</span>
+          <span>More</span>
+        </button>
       </nav>
 
+      {/* "More" sheet — mobile overflow items */}
+      {moreOpen && (
+        <div onClick={() => setMoreOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:150, display:'flex', alignItems:'flex-end' }}>
+          <div onClick={e => e.stopPropagation()} className="card" style={{ width:'100%', borderRadius:'var(--radius-lg) var(--radius-lg) 0 0', padding:'var(--space-4)', paddingBottom:'calc(var(--space-4) + env(safe-area-inset-bottom,0))' }}>
+            {OVERFLOW.map(n => (
+              <NavLink key={n.to} to={n.to} onClick={() => setMoreOpen(false)} style={{ display:'flex', alignItems:'center', gap:'var(--space-3)', padding:'var(--space-3)', borderRadius:'var(--radius)', textDecoration:'none', color:'var(--text)', fontSize:'var(--text-base)' }}>
+                <span style={{ fontSize:20 }}>{n.icon}</span>{n.label}
+              </NavLink>
+            ))}
+            <button onClick={handleLogout} style={{ display:'flex', alignItems:'center', gap:'var(--space-3)', padding:'var(--space-3)', width:'100%', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-sans)', color:'var(--red)', fontSize:'var(--text-base)' }}>
+              <span style={{ fontSize:20 }}>↩</span>Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <main style={{ marginLeft:0, minHeight:'100dvh' }} className="page-content">
-        <Routes>
-          <Route path="dashboard"  element={<DirectorDashboard />} />
-          <Route path="territory"  element={<TerritoryPage />} />
-          <Route path="team"       element={<Placeholder title="Team" />} />
-          <Route path="voters"     element={<Placeholder title="Voters" />} />
-          <Route path="import"     element={<VoterImportPage />} />
-          <Route path="messaging"  element={<Placeholder title="Messaging" />} />
-          <Route path="settings"   element={<SettingsPage />} />
-          <Route path="templates"  element={<TemplateManager />} />
-          <Route path="*"          element={<Navigate to="dashboard" replace />} />
-        </Routes>
+      <main className="page-content" style={{ minHeight:'100dvh' }}>
+        <div className="page-inner">
+          <Routes>
+            <Route path="dashboard"  element={<DirectorDashboard />} />
+            <Route path="territory"  element={<TerritoryPage />} />
+            <Route path="team"       element={<DirectorTeamPage />} />
+            <Route path="voters"     element={<DirectorVotersPage />} />
+            <Route path="import"     element={<VoterImportPage />} />
+            <Route path="messaging"  element={<DirectorMessagingPage />} />
+            <Route path="settings"   element={<SettingsPage />} />
+            <Route path="templates"  element={<TemplateManager />} />
+            <Route path="*"          element={<Navigate to="dashboard" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

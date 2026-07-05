@@ -2,10 +2,8 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.jsx';
 import CoordinatorDashboard from './coordinator/CoordinatorDashboard.jsx';
 import SessionBuilder from './coordinator/SessionBuilder.jsx';
-
-function Placeholder({ title }) {
-  return <div style={{padding:'40px 24px',textAlign:'center'}}><h2 style={{fontFamily:'var(--font-display)',fontSize:'var(--text-xl)'}}>{title}</h2><p style={{color:'var(--text-2)'}}>Coming soon.</p></div>;
-}
+import ZoneVotersPage from './coordinator/ZoneVotersPage.jsx';
+import MyAgentsPage from './coordinator/MyAgentsPage.jsx';
 
 const NAV=[
   {to:'/coordinator/dashboard', label:'Dashboard', icon:'📊'},
@@ -47,14 +45,16 @@ export default function CoordinatorLayout() {
           </NavLink>
         ))}
       </nav>
-      <main style={{marginLeft:0,minHeight:'100dvh'}} className="page-content">
-        <Routes>
-          <Route path="dashboard" element={<CoordinatorDashboard/>}/>
-          <Route path="voters"    element={<Placeholder title="Zone Voters"/>}/>
-          <Route path="sessions"  element={<SessionBuilder/>}/>
-          <Route path="team"      element={<Placeholder title="My Agents"/>}/>
-          <Route path="*"         element={<Navigate to="dashboard" replace/>}/>
-        </Routes>
+      <main style={{minHeight:'100dvh'}} className="page-content">
+        <div className="page-inner">
+          <Routes>
+            <Route path="dashboard" element={<CoordinatorDashboard/>}/>
+            <Route path="voters"    element={<ZoneVotersPage/>}/>
+            <Route path="sessions"  element={<SessionBuilder/>}/>
+            <Route path="team"      element={<MyAgentsPage/>}/>
+            <Route path="*"         element={<Navigate to="dashboard" replace/>}/>
+          </Routes>
+        </div>
       </main>
     </div>
   );

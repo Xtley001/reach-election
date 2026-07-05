@@ -7,13 +7,23 @@
   padding: 0 var(--space-4);
 }
 
-/* Page content safe area */
+/* Page content safe area — mobile: full width, room for bottom-nav */
 .page-content {
+  margin-left: 0;
   padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
   padding-top: env(safe-area-inset-top, 0);
 }
 
-/* Sidebar hidden on mobile */
+/* Inner wrapper centers content WITHOUT touching the sidebar offset.
+   Centering lives here so it can never override .page-content's margin-left
+   (the bug that hid desktop content behind the fixed sidebar). */
+.page-inner {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Sidebar hidden on mobile — bottom-nav is the only navigation */
 .sidebar { display: none; }
 
 /* ─── 480px+ — large phone ────────────────────────────────────────────────── */
@@ -21,21 +31,16 @@
   .container { padding: 0 var(--space-6); }
 }
 
-/* ─── 768px+ — tablet ─────────────────────────────────────────────────────── */
-@media (min-width: 768px) {
-  .bottom-nav  { display: none; }
-  .sidebar     { display: flex; }
+/* ─── 900px+ — desktop: single nav swap, sidebar replaces bottom-nav ──────── */
+@media (min-width: 900px) {
+  .bottom-nav { display: none; }
+  /* Agent shell has no sidebar — keep its tab bar on every width. */
+  .bottom-nav.bottom-nav--persist { display: flex; }
+  .sidebar    { display: flex; }
   .page-content {
-    margin-left: 240px;
+    margin-left: 220px;          /* reserve fixed sidebar column — never zeroed */
     padding-bottom: var(--space-8);
-  }
-}
-
-/* ─── 1024px+ — desktop ───────────────────────────────────────────────────── */
-@media (min-width: 1024px) {
-  .page-content {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 0 var(--space-8);
+    padding-left: var(--space-6);
+    padding-right: var(--space-6);
   }
 }

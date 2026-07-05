@@ -169,11 +169,30 @@ async def cancel_session(session_id: str, db: DbSession = Depends(get_db),
 @router.get("/sessions")
 async def list_sessions(db: DbSession = Depends(get_db),
                         current_user: User = Depends(require_coordinator)):
-    sessions = db.query(MessagingSession).filter(
+    q = db.query(MessagingSession).filter(
         MessagingSession.campaign_id == current_user.campaign_id,
-        MessagingSession.zone_id == current_user.zone_id,
-    ).order_by(MessagingSession.created_at.desc()).all()
-    return [_session_out(s) for s in sessions]
+    )
+    # Director sees every zone's sessions; coordinator is scoped to their zone.
+    if current_user.role == UserRole.coordinator:
+        q = q.filter(MessagingSession.zone_id == current_user.zone_id)
+    sessions = q.order_by(MessagingSession.created_at.desc()).all()
+
+    out = []
+    for s in sessions:
+        d = _session_out(s)
+        tpl = db.query(MessageTemplate).filter(MessageTemplate.id == s.template_id).first()
+        d["template_label"] = tpl.label if tpl else None
+        asgns = db.query(MessagingSessionAssignment).filter(
+            MessagingSessionAssignment.session_id == s.id
+        ).all()
+        tv = sum(a.voter_count for a in asgns)
+        ts = sum(a.sent_count for a in asgns)
+        d["voter_count"] = tv
+        d["sent_count"]  = ts
+        d["overall_pct"] = round(ts / tv * 100, 1) if tv else 0
+        d["agent_count"] = len(asgns)
+        out.append(d)
+    return out
 
 
 # ── 5.11 GET /sessions/active ────────────────────────────────────────────────
@@ -372,6 +391,59 @@ async def session_progress(session_id: str, db: DbSession = Depends(get_db),
         "total_voters": total_v, "total_sent": total_s,
         "overall_pct": round(total_s / total_v * 100, 1) if total_v else 0,
         "agents": rows,
+    }
+
+
+# ── 5.14 GET /sessions/{id}/analytics — outcome breakdown for a session ──────
+
+@router.get("/sessions/{session_id}/analytics")
+async def session_analytics(session_id: str, db: DbSession = Depends(get_db),
+                            current_user: User = Depends(require_coordinator)):
+    """Send completion + channel mix + outcome/support breakdown for the voters
+    this session actually messaged. (Delivery/reply receipts are not tracked —
+    MessageSend has no such column — so those rates are intentionally omitted.)"""
+    s = _get_session(session_id, current_user, db)
+
+    asgns = db.query(MessagingSessionAssignment).filter(
+        MessagingSessionAssignment.session_id == session_id
+    ).all()
+    total_voters = sum(a.voter_count for a in asgns)
+    total_sent   = sum(a.sent_count for a in asgns)
+
+    # Channel mix of actual sends
+    by_channel = dict(
+        db.query(MessageSend.channel, func.count(MessageSend.id))
+        .filter(MessageSend.session_id == session_id)
+        .group_by(MessageSend.channel).all()
+    )
+    by_channel = {str(k).split(".")[-1]: int(v) for k, v in by_channel.items()}
+
+    # Outcome + support breakdown of voters messaged in this session
+    sent_voter_ids = [r[0] for r in db.query(MessageSend.voter_id)
+                      .filter(MessageSend.session_id == session_id).distinct().all()]
+    outcomes, support = {}, {}
+    if sent_voter_ids:
+        for status, cnt in (db.query(Voter.current_status, func.count(Voter.id))
+                            .filter(Voter.id.in_(sent_voter_ids))
+                            .group_by(Voter.current_status).all()):
+            outcomes[status] = int(cnt)
+        for lvl, cnt in (db.query(Voter.support_level, func.count(Voter.id))
+                        .filter(Voter.id.in_(sent_voter_ids))
+                        .group_by(Voter.support_level).all()):
+            support[lvl] = int(cnt)
+
+    confirmed = outcomes.get("confirmed_voter", 0)
+    return {
+        "session_id":    session_id,
+        "status":        s.status,
+        "total_voters":  total_voters,
+        "total_sent":    total_sent,
+        "send_pct":      round(total_sent / total_voters * 100, 1) if total_voters else 0,
+        "reached_voters": len(sent_voter_ids),
+        "confirm_pct":   round(confirmed / len(sent_voter_ids) * 100, 1) if sent_voter_ids else 0,
+        "by_channel":    by_channel,
+        "outcomes":      outcomes,
+        "support_breakdown": support,
     }
 
 

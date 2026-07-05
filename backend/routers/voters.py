@@ -787,6 +787,46 @@ async def update_voter(
     return _voter_out(v)
 
 
+# ─── 4.5b  POST /voters/{id}/reassign — move a voter to another agent ─────────
+# Coordinator/director only. A coordinator may reassign only within their own
+# zone and only to an agent in that zone. Directors are unrestricted within
+# the campaign.
+
+@router.post("/voters/{voter_id}/reassign")
+async def reassign_voter(
+    voter_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_coordinator),
+):
+    v = _get_scoped_voter(voter_id, current_user, db)   # enforces zone scope for coordinators
+
+    target_agent_id = (body or {}).get("agent_id")
+    if not target_agent_id:
+        raise HTTPException(400, "agent_id is required.")
+
+    agent = db.query(User).filter(
+        User.id == target_agent_id,
+        User.campaign_id == current_user.campaign_id,
+        User.role == UserRole.agent,
+    ).first()
+    if not agent:
+        raise HTTPException(404, "Target agent not found in this campaign.")
+
+    # Coordinator may only assign to an agent in the voter's zone.
+    if current_user.role != UserRole.director:
+        assert_zone_access(current_user, str(v.zone_id))
+        if str(agent.zone_id) != str(v.zone_id):
+            raise HTTPException(403, "Agent is not in this voter's zone.")
+
+    v.added_by = agent.id
+    log_action(db, current_user, "voter.reassigned", "voter", voter_id,
+               metadata={"to_agent": str(agent.id)})
+    db.commit()
+    db.refresh(v)
+    return _voter_out(v)
+
+
 # ─── 4.6  DELETE /voters/{id} (soft delete) ───────────────────────────────────
 
 @router.delete("/voters/{voter_id}")

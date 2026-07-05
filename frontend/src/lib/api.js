@@ -119,6 +119,7 @@ export const api = {
   updateVoter:        (id, body)      => request('PATCH',  `/voters/${id}`, body),
   deleteVoter:        (id)            => request('DELETE', `/voters/${id}`),
   logContact:         (id, body)      => request('POST',   `/voters/${id}/contacts`, body),
+  reassignVoter:      (id, agent_id)  => request('POST',   `/voters/${id}/reassign`, { agent_id }),
   getQueue:           ()              => request('GET',    '/voters/queue'),
   getDuplicates:      ()              => request('GET',    '/voters/duplicates'),
   resolveDuplicate:   (id, body)      => request('POST',   `/voters/${id}/resolve-duplicate`, body),
@@ -149,6 +150,7 @@ export const api = {
   getSessionQueue:    (id)            => request('GET',    `/sessions/${id}/queue`),
   logSend:            (id, body)      => request('POST',   `/sessions/${id}/send`, body),
   getSessionProgress: (id)            => request('GET',    `/sessions/${id}/progress`),
+  getSessionAnalytics:(id)            => request('GET',    `/sessions/${id}/analytics`),
   // 10_AUDIT.md Pass 2 missing entry
   getSession:         (id)            => request('GET',    `/sessions/${id}`),
 
@@ -170,6 +172,7 @@ export const api = {
   }).then(r => r.json()),
   listAgents:         ()              => request('GET',    '/users/agents'),
   listCoordinators:   ()              => request('GET',    '/users/coordinators'),
+  teamTree:           ()              => request('GET',    '/users/team-tree'),
   suspendUser:        (id)            => request('PATCH',  `/users/${id}/status`, { status: 'suspended' }),
   reinstateUser:      (id)            => request('PATCH',  `/users/${id}/status`, { status: 'active' }),
 };
