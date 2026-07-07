@@ -1,12 +1,29 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { toast } from '../../lib/toast';
+import { useAuth } from '../../hooks/useAuth.jsx';
 import { queueAction } from '../../lib/offline';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
 
 const E164_RE = /^\+[1-9]\d{7,14}$/;
+
+/* Normalize a Nigerian number the way agents actually type it into E.164.
+   Accepts: 08012345678 · 8012345678 · 2348012345678 · +2348012345678
+   (spaces, dashes and brackets are ignored). Returns '' for empty input. */
+function normalizePhone(raw) {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  const plus = trimmed.startsWith('+');
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '';
+  if (plus)                 return '+' + digits;   // already international
+  if (digits.startsWith('234')) return '+' + digits;
+  if (digits.startsWith('0'))   return '+234' + digits.slice(1);
+  if (digits.length === 10)     return '+234' + digits;   // 8012345678
+  return '+' + digits;
+}
 
 const SUPPORT_OPTIONS = [
   { v: 'strong_supporter', l: 'Strong Supporter', color: 'var(--green)' },
@@ -149,9 +166,9 @@ function ClaimForm({ voter, onBack, onDone }) {
 
   async function handleClaim() {
     setPhoneErr('');
-    const ph = phone.trim();
+    const ph = normalizePhone(phone);
     if (!ph) { setPhoneErr('Phone is required.'); return; }
-    if (!E164_RE.test(ph)) { setPhoneErr('Use E.164 format: +2348012345678'); return; }
+    if (!E164_RE.test(ph)) { setPhoneErr('Enter a valid phone, e.g. 08012345678'); return; }
     if (support === 'unknown') { toast.error('Please select a support level.'); return; }
 
     setLoading(true);
@@ -208,7 +225,7 @@ function ClaimForm({ voter, onBack, onDone }) {
           ref={phoneRef}
           type="tel"
           inputMode="tel"
-          placeholder="+2348012345678"
+          placeholder="08012345678"
           value={phone}
           onChange={e => { setPhone(e.target.value); setPhoneErr(''); }}
           error={!!phoneErr}
@@ -245,8 +262,113 @@ function ClaimForm({ voter, onBack, onDone }) {
   );
 }
 
+/* ── Searchable polling-unit picker with inline "add new" ──────────────────── */
+function PollingUnitPicker({ pus, value, zoneId, error, onChange, onCreated }) {
+  const [query, setQuery]   = useState('');
+  const [open, setOpen]     = useState(false);
+  const [creating, setCreating] = useState(false);
+  const boxRef = useRef(null);
+
+  const selected = pus.find(p => p.id === value);
+
+  // What the input shows: the chosen PU's name, unless the user is actively typing.
+  const shown = open ? query : (selected ? selected.name : '');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return pus.slice(0, 20);
+    return pus.filter(p => p.name.toLowerCase().includes(q)).slice(0, 20);
+  }, [pus, query]);
+
+  const exactMatch = pus.some(p => p.name.trim().toLowerCase() === query.trim().toLowerCase());
+
+  useEffect(() => {
+    function onDocClick(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  async function createNew() {
+    const name = query.trim();
+    if (!name) return;
+    if (!zoneId) { toast.error('You are not assigned to a zone yet.'); return; }
+    setCreating(true);
+    try {
+      const pu = await api.createPU({ zone_id: zoneId, name });
+      onCreated(pu);
+      onChange(pu.id);
+      setQuery('');
+      setOpen(false);
+      toast.success(`Polling unit "${pu.name}" added.`);
+    } catch (err) {
+      toast.error(err.message?.includes('409') ? 'That polling unit already exists.' : (err.message || 'Could not add polling unit.'));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <input
+        className={`input${error ? ' input-error' : ''}`}
+        placeholder="Search or add a polling unit…"
+        value={shown}
+        onFocus={() => { setOpen(true); setQuery(selected ? selected.name : ''); }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onChange(''); }}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20,
+          background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 240, overflowY: 'auto',
+        }}>
+          {filtered.map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => { onChange(p.id); setQuery(''); setOpen(false); }}
+              style={{
+                width: '100%', textAlign: 'left', padding: '10px var(--space-3)',
+                background: p.id === value ? 'var(--bg-2)' : 'transparent',
+                border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer',
+                color: 'var(--text)', fontSize: 'var(--text-sm)',
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+
+          {query.trim() && !exactMatch && (
+            <button
+              type="button"
+              onClick={createNew}
+              disabled={creating}
+              style={{
+                width: '100%', textAlign: 'left', padding: '10px var(--space-3)',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'var(--accent)', fontSize: 'var(--text-sm)', fontWeight: 600,
+              }}
+            >
+              {creating ? 'Adding…' : `+ Add “${query.trim()}” as new polling unit`}
+            </button>
+          )}
+
+          {filtered.length === 0 && !query.trim() && (
+            <p style={{ padding: '10px var(--space-3)', color: 'var(--text-3)', fontSize: 'var(--text-sm)' }}>
+              No polling units yet — type a name to add one.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Manual add form (fallback) ────────────────────────────────────────────── */
 function ManualForm({ initialName, onBack, onDone }) {
+  const { user } = useAuth();
   const [name, setName]           = useState(initialName || '');
   const [phone, setPhone]         = useState('');
   const [puId, setPuId]           = useState('');
@@ -265,7 +387,7 @@ function ManualForm({ initialName, onBack, onDone }) {
     const e = {};
     if (!name.trim())  e.name  = 'Full name is required.';
     if (!phone.trim()) e.phone = 'Phone is required.';
-    else if (!E164_RE.test(phone.trim())) e.phone = 'Use E.164: +2348012345678';
+    else if (!E164_RE.test(normalizePhone(phone))) e.phone = 'Enter a valid phone, e.g. 08012345678';
     if (!puId) e.puId = 'Select a polling unit.';
     setErrors(e);
     return !Object.keys(e).length;
@@ -276,7 +398,7 @@ function ManualForm({ initialName, onBack, onDone }) {
     setLoading(true);
     const payload = {
       name: name.trim(),
-      phone: phone.trim(),
+      phone: normalizePhone(phone),
       polling_unit_id: puId,
       support_level: support,
       pvc_status: pvc,
@@ -316,7 +438,7 @@ function ManualForm({ initialName, onBack, onDone }) {
         <Input
           type="tel"
           inputMode="tel"
-          placeholder="+2348012345678"
+          placeholder="08012345678"
           value={phone}
           onChange={e => { setPhone(e.target.value); setErrors(p => ({ ...p, phone: '' })); }}
           error={!!errors.phone}
@@ -324,14 +446,14 @@ function ManualForm({ initialName, onBack, onDone }) {
       </F>
 
       <F label="Polling unit" required error={errors.puId}>
-        <select
-          className={`input${errors.puId ? ' input-error' : ''}`}
+        <PollingUnitPicker
+          pus={pus}
           value={puId}
-          onChange={e => { setPuId(e.target.value); setErrors(p => ({ ...p, puId: '' })); }}
-        >
-          <option value="">Select polling unit…</option>
-          {pus.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+          zoneId={user?.zone_id}
+          error={!!errors.puId}
+          onChange={id => { setPuId(id); setErrors(p => ({ ...p, puId: '' })); }}
+          onCreated={pu => setPUs(prev => [...prev, pu])}
+        />
       </F>
 
       <F label="Support level" required>

@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ..database import get_db
-from ..models import PollingUnit, Zone, Voter, User
+from ..models import PollingUnit, Zone, Voter, User, UserRole
 from ..schemas import CreatePURequest, UpdatePURequest
-from ..dependencies import require_director, require_coordinator, log_action, assert_zone_access
+from ..dependencies import require_director, require_coordinator, require_agent, log_action, assert_zone_access
 
 router = APIRouter(tags=["polling_units"])
 
@@ -38,8 +38,15 @@ async def download_template(current_user: User = Depends(require_director)):
 async def create_pu(
     body: CreatePURequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_director),
+    current_user: User = Depends(require_agent),
 ):
+    # Non-directors (coordinators, field agents) may only add a polling unit
+    # to their own zone — the request's zone_id is overridden, never trusted.
+    if current_user.role != UserRole.director:
+        if not current_user.zone_id:
+            raise HTTPException(400, "You are not assigned to a zone.")
+        body.zone_id = str(current_user.zone_id)
+
     zone = db.query(Zone).filter(
         Zone.id == body.zone_id,
         Zone.campaign_id == current_user.campaign_id,
@@ -165,13 +172,15 @@ async def import_pus(
 async def list_pus(
     zone_id: str = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_coordinator),
+    current_user: User = Depends(require_agent),
 ):
+    # Agents need this to populate the polling-unit picker on the Add Voter form.
     q = db.query(PollingUnit).filter(PollingUnit.campaign_id == current_user.campaign_id)
     if zone_id:
         assert_zone_access(current_user, zone_id)
         q = q.filter(PollingUnit.zone_id == zone_id)
-    elif current_user.role == "coordinator":
+    elif current_user.role != UserRole.director:
+        # Coordinators and agents are scoped to their own zone.
         q = q.filter(PollingUnit.zone_id == current_user.zone_id)
     pus = q.order_by(PollingUnit.name).all()
     return [_pu_out(p) for p in pus]
