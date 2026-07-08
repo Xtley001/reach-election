@@ -6,24 +6,7 @@ import { useAuth } from '../../hooks/useAuth.jsx';
 import { queueAction } from '../../lib/offline';
 import { Button } from '../../components/ui/Button.jsx';
 import { Input } from '../../components/ui/Input.jsx';
-
-const E164_RE = /^\+[1-9]\d{7,14}$/;
-
-/* Normalize a Nigerian number the way agents actually type it into E.164.
-   Accepts: 08012345678 · 8012345678 · 2348012345678 · +2348012345678
-   (spaces, dashes and brackets are ignored). Returns '' for empty input. */
-function normalizePhone(raw) {
-  if (!raw) return '';
-  const trimmed = raw.trim();
-  const plus = trimmed.startsWith('+');
-  const digits = trimmed.replace(/\D/g, '');
-  if (!digits) return '';
-  if (plus)                 return '+' + digits;   // already international
-  if (digits.startsWith('234')) return '+' + digits;
-  if (digits.startsWith('0'))   return '+234' + digits.slice(1);
-  if (digits.length === 10)     return '+234' + digits;   // 8012345678
-  return '+' + digits;
-}
+import { E164_RE, normalizePhone } from '../../lib/phone';
 
 const SUPPORT_OPTIONS = [
   { v: 'strong_supporter', l: 'Strong Supporter', color: 'var(--green)' },
@@ -311,10 +294,21 @@ function PollingUnitPicker({ pus, value, zoneId, error, onChange, onCreated }) {
     <div ref={boxRef} style={{ position: 'relative' }}>
       <input
         className={`input${error ? ' input-error' : ''}`}
-        placeholder="Search or add a polling unit…"
+        placeholder="Search or type a new polling unit…"
         value={shown}
         onFocus={() => { setOpen(true); setQuery(selected ? selected.name : ''); }}
         onChange={e => { setQuery(e.target.value); setOpen(true); if (value) onChange(''); }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const q = query.trim();
+            if (!q) return;
+            const match = pus.find(p => p.name.trim().toLowerCase() === q.toLowerCase());
+            if (match) { onChange(match.id); setQuery(''); setOpen(false); }
+            else if (filtered.length === 1) { onChange(filtered[0].id); setQuery(''); setOpen(false); }
+            else createNew();   // no match → accept the typed value
+          }
+        }}
         autoComplete="off"
         spellCheck={false}
       />

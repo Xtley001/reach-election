@@ -102,7 +102,7 @@ async def create_agent_invite(
 ):
     name  = body.name.strip()
     email = body.email.strip().lower()
-    phone = body.phone.strip()
+    phone = (body.phone or "").strip()
 
     if not name:
         raise HTTPException(400, "name is required.")
@@ -130,7 +130,7 @@ async def create_agent_invite(
         invited_by=current_user.id,
         invited_name=name,
         invited_email=email,
-        invited_phone=phone,
+        invited_phone=phone or None,   # DB check constraint: NULL, not ''
         expires_at=now + timedelta(days=INVITE_EXPIRE_DAYS),
     )
     db.add(inv)
@@ -142,7 +142,7 @@ async def create_agent_invite(
     zone       = db.query(Zone).filter(Zone.id == zone_id).first()
     campaign   = db.query(Campaign).filter(Campaign.id == current_user.campaign_id).first()
 
-    if settings.OTP_PROVIDER == "brevo" and settings.BREVO_API_KEY:
+    if settings.email_provider == "brevo" and settings.BREVO_API_KEY:
         import httpx
         html = _agent_invite_html(
             name,

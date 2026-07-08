@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { api } from '../lib/api';
 import { toast } from '../lib/toast';
@@ -11,6 +11,9 @@ export default function SettingsPage() {
   const { user, logout, reload } = useAuth();
   const [name, setName]         = useState(user?.name || '');
   const [saving, setSaving]     = useState(false);
+  const [avatar, setAvatar]     = useState(user?.avatar_url || '');
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
 
   async function saveProfile() {
     if (!name.trim()) { toast.error('Name cannot be empty.'); return; }
@@ -23,7 +26,28 @@ export default function SettingsPage() {
     finally { setSaving(false); }
   }
 
+  async function onPickAvatar(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024)     { toast.error('Image must be under 5 MB.'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.uploadAvatar(fd);
+      if (res?.avatar_url) { setAvatar(res.avatar_url); await reload(); toast.success('Photo updated.'); }
+      else throw new Error(res?.detail || 'Upload failed.');
+    } catch (err) {
+      toast.error(err.message || 'Could not upload photo.');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
   const roleLabels = { director: 'Campaign Director', coordinator: 'Coordinator', agent: 'Field Agent' };
+  const initial = (name || user?.email || '?').charAt(0).toUpperCase();
 
   return (
     <div style={{ padding: 'var(--space-5)', maxWidth: 520, margin: '0 auto' }}>
@@ -37,6 +61,25 @@ export default function SettingsPage() {
           <p style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>Profile</p>
           <Badge variant="blue">{roleLabels[user?.role] || user?.role}</Badge>
         </div>
+        {/* Avatar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: '50%', flexShrink: 0, overflow: 'hidden',
+            background: 'color-mix(in srgb, var(--accent) 15%, transparent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 24, fontWeight: 700, color: 'var(--accent)',
+          }}>
+            {avatar ? <img src={avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initial}
+          </div>
+          <div>
+            <input ref={fileRef} type="file" accept="image/*" onChange={onPickAvatar} style={{ display: 'none' }} />
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              {uploading ? 'Uploading…' : avatar ? 'Change photo' : 'Upload photo'}
+            </Button>
+            <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-3)', marginTop: 6 }}>JPG or PNG, up to 5 MB</p>
+          </div>
+        </div>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div>
             <label className="field-label" style={{ display: 'block', marginBottom: 'var(--space-2)' }}>Display name</label>

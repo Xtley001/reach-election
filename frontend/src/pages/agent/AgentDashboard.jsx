@@ -5,6 +5,7 @@ import { toast } from '../../lib/toast';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { contactStatusLabels } from '../../lib/labels';
 import { Button } from '../../components/ui/Button.jsx';
+import { Icon } from '../../components/ui/Icon.jsx';
 
 export default function AgentDashboard() {
   const [data,setData]       = useState(null);
@@ -23,11 +24,19 @@ export default function AgentDashboard() {
 
   return (
     <div style={{padding:'var(--space-5)'}}>
-      <div style={{marginBottom:'var(--space-5)'}}>
-        <h1 style={{fontFamily:'var(--font-display)',fontSize:'var(--text-xl)',fontWeight:700}}>
-          Good morning{user?.name?`, ${user.name.split(' ')[0]}`:''}
-        </h1>
-        <p style={{color:'var(--text-2)',fontSize:'var(--text-sm)',marginTop:2}}>Here's your summary for today</p>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'var(--space-3)',marginBottom:'var(--space-5)'}}>
+        <div>
+          <h1 style={{fontFamily:'var(--font-display)',fontSize:'var(--text-xl)',fontWeight:700}}>
+            Good morning{user?.name?`, ${user.name.split(' ')[0]}`:''}
+          </h1>
+          <p style={{color:'var(--text-2)',fontSize:'var(--text-sm)',marginTop:2}}>Here's your summary for today</p>
+        </div>
+        <button onClick={()=>navigate('/agent/settings')} aria-label="Settings"
+          style={{flexShrink:0,width:40,height:40,borderRadius:'50%',border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text-2)',overflow:'hidden',padding:0}}>
+          {user?.avatar_url
+            ? <img src={user.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            : <Icon name="settings" size={20}/>}
+        </button>
       </div>
 
       {/* Today strip */}

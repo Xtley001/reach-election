@@ -378,8 +378,24 @@ select.input { cursor: pointer; }
   -webkit-tap-highlight-color: transparent;
   text-decoration: none;
 }
+/* No underline on nav taps/hover — the global `a:hover` underline would
+   otherwise stick under the active tab on touch devices. Presence is shown
+   by color + a slight icon lift, not a line. */
+.bottom-nav-item:hover,
+.bottom-nav-item.active { text-decoration: none; }
+.bottom-nav-item:hover { color: var(--text); }
 .bottom-nav-item.active { color: var(--accent); }
-.bottom-nav-icon { width: 24px; height: 24px; }
+.bottom-nav-item.active .bottom-nav-icon,
+.bottom-nav-item:hover  .bottom-nav-icon { transform: translateY(-1px); }
+.bottom-nav-icon {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s ease;
+}
+
+/* Sidebar nav links — hover feedback (desktop), never underlined */
+.sidebar-link { text-decoration: none; transition: background 0.12s ease, color 0.12s ease; }
+.sidebar-link:hover { text-decoration: none; background: var(--bg-2); color: var(--text); }
 
 /* ─── Top Bar ─────────────────────────────────────────────────────────────── */
 .topbar {

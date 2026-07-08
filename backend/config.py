@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     def refresh_cookie_path(self) -> str:
         return f"{self.API_PREFIX}/auth/refresh"
 
+    @property
+    def email_provider(self) -> str:
+        """Resolved email provider: EMAIL_OTP_PROVIDER, falling back to the
+        legacy OTP_PROVIDER. Used for OTP and invite emails alike."""
+        return self.EMAIL_OTP_PROVIDER or self.OTP_PROVIDER
+
 
 @lru_cache
 def get_settings() -> Settings:

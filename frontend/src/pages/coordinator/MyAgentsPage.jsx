@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/Badge.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 import { PageHeader } from '../../components/ui/PageHeader.jsx';
 import { EmptyState } from '../../components/ui/EmptyState.jsx';
+import { normalizePhone } from '../../lib/phone';
 
 export default function MyAgentsPage() {
   const { user } = useAuth();
@@ -116,7 +117,7 @@ function InviteAgentModal({ zoneId, onClose, onDone }) {
     if (!name.trim() || !email.trim()) { toast.error('Name and email are required.'); return; }
     setBusy(true);
     try {
-      await api.createAgentInvite({ name: name.trim(), email: email.trim(), phone: phone.trim(), zone_id: zoneId });
+      await api.createAgentInvite({ name: name.trim(), email: email.trim(), phone: normalizePhone(phone) || undefined, zone_id: zoneId });
       toast.success('Invite sent.');
       onDone();
     } catch (err) {

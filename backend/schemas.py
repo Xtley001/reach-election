@@ -171,12 +171,15 @@ class CreateCoordinatorInviteRequest(BaseModel):
 class CreateAgentInviteRequest(BaseModel):
     name: str = Field(max_length=100)
     email: EmailStr
-    phone: str
+    phone: Optional[str] = None
     zone_id: Optional[str] = None
 
     @field_validator('phone')
     @classmethod
     def validate_phone(cls, v):
+        # Phone is optional on an invite; validate E.164 only when provided.
+        if v is None or v.strip() == '':
+            return None
         if not E164_RE.match(v):
             raise ValueError('Phone must be in E.164 format (e.g. +2348012345678)')
         return v
